@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store";
-import { BookOpen, LogOut, Map, Code, BarChart3 } from "lucide-react";
+import { BookOpen, LogOut, Map, Code, BarChart3, Network } from "lucide-react";
 
 export default function AppLayout() {
   const { user, logout } = useAuthStore();
@@ -24,6 +24,9 @@ export default function AppLayout() {
           </NavLink>
           <NavLink to="/path" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
             <Map size={18} /> 路径
+          </NavLink>
+          <NavLink to="/graph" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+            <Network size={18} /> 图谱
           </NavLink>
           <NavLink to="/dashboard" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
             <BarChart3 size={18} /> 仪表盘
