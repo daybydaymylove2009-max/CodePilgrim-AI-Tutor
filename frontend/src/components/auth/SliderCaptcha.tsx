@@ -103,7 +103,7 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
 
     const trackWidth = getSliderMaxX();
     const moveX = (currentXRef.current / trackWidth) * (challenge.width - challenge.puzzle_size);
-    const puzzleX = Math.round(moveX + challenge.puzzle_size / 2);
+    const puzzleX = Math.round(moveX);
 
     try {
       const { data } = await authApi.verifyCaptcha({
