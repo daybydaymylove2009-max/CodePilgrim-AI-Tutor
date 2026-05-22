@@ -24,18 +24,26 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
   const [isVerified, setIsVerified] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isFailed, setIsFailed] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const trackRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
+  const animFrameRef = useRef<number>(0);
+  const currentXRef = useRef(0);
 
   const loadChallenge = useCallback(async () => {
+    setIsLoading(true);
     try {
       const { data } = await authApi.getCaptchaChallenge();
       setChallenge(data);
       setSliderX(0);
+      currentXRef.current = 0;
       setIsVerified(false);
       setIsFailed(false);
     } catch {
       onError("获取验证码失败，请刷新重试");
+    } finally {
+      setIsLoading(false);
     }
   }, [onError]);
 
@@ -43,34 +51,56 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
     loadChallenge();
   }, [loadChallenge]);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  useEffect(() => {
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, []);
+
+  const getSliderMaxX = useCallback(() => {
+    if (!trackRef.current) return 260;
+    return trackRef.current.offsetWidth - 44;
+  }, []);
+
+  const updateSliderPosition = useCallback((clientX: number) => {
+    if (!trackRef.current) return;
+    const maxX = getSliderMaxX();
+    const delta = clientX - startXRef.current;
+    const newX = Math.max(0, Math.min(delta, maxX));
+    currentXRef.current = newX;
+    setSliderX(newX);
+  }, [getSliderMaxX]);
+
+  const handleDragStart = useCallback(
+    (clientX: number) => {
       if (isVerified || !challenge) return;
       setIsDragging(true);
-      startXRef.current = e.clientX - sliderX;
+      startXRef.current = clientX - currentXRef.current;
     },
-    [isVerified, sliderX, challenge]
+    [isVerified, challenge]
   );
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isDragging || isVerified || !trackRef.current || !challenge) return;
-      const trackWidth = trackRef.current.offsetWidth - 44;
-      const newSliderX = Math.max(0, Math.min(e.clientX - startXRef.current, trackWidth));
-      setSliderX(newSliderX);
+  const handleDragMove = useCallback(
+    (clientX: number) => {
+      if (!isDragging || isVerified) return;
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = requestAnimationFrame(() => updateSliderPosition(clientX));
     },
-    [isDragging, isVerified, challenge]
+    [isDragging, isVerified, updateSliderPosition]
   );
 
-  const handleMouseUp = useCallback(async () => {
+  const handleDragEnd = useCallback(async () => {
     if (!isDragging || isVerified || !challenge) return;
     setIsDragging(false);
+
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+
     setIsVerifying(true);
 
-    const trackWidth = trackRef.current?.offsetWidth ? trackRef.current.offsetWidth - 44 : 260;
+    const trackWidth = getSliderMaxX();
     const maxX = challenge.width - challenge.puzzle_size;
     const ratio = maxX / trackWidth;
-    const puzzleX = Math.round(sliderX * ratio);
+    const puzzleX = Math.round(currentXRef.current * ratio);
 
     try {
       const { data } = await authApi.verifyCaptcha({
@@ -94,50 +124,111 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
     } finally {
       setIsVerifying(false);
     }
-  }, [isDragging, isVerified, challenge, sliderX, onVerified, onError, loadChallenge]);
+  }, [isDragging, isVerified, challenge, onVerified, onError, loadChallenge, getSliderMaxX]);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      handleDragStart(e.clientX);
+    },
+    [handleDragStart]
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      handleDragMove(e.clientX);
+    },
+    [handleDragMove]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    handleDragEnd();
+  }, [handleDragEnd]);
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      handleDragStart(touch.clientX);
+    },
+    [handleDragStart]
+  );
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      handleDragMove(touch.clientX);
+    },
+    [handleDragMove]
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    handleDragEnd();
+  }, [handleDragEnd]);
 
   const puzzleOffsetX = challenge
-    ? (sliderX / (trackRef.current ? trackRef.current.offsetWidth - 44 : 260)) *
-      (challenge.width - challenge.puzzle_size)
+    ? (currentXRef.current / getSliderMaxX()) * (challenge.width - challenge.puzzle_size)
     : 0;
 
+  const statusClass = isVerified ? "verified" : isFailed ? "failed" : isDragging ? "dragging" : "";
+
   return (
-    <div className="slider-captcha">
+    <div className="slider-captcha" ref={containerRef}>
+      {isLoading && (
+        <div className="captcha-loading">
+          <div className="captcha-spinner" />
+          <span>加载验证码...</span>
+        </div>
+      )}
       {challenge && (
-        <div className="captcha-image-container">
-          <div className="captcha-background-wrapper" style={{ width: challenge.width, height: challenge.height }}>
+        <div className={`captcha-image-container ${isLoading ? "hidden" : ""}`}>
+          <div
+            className="captcha-background-wrapper"
+            style={{ width: challenge.width, height: challenge.height }}
+          >
             <img
-              src={`data:image/png;base64,${challenge.background_image}`}
+              src={`data:image/webp;base64,${challenge.background_image}`}
               alt="captcha background"
               className="captcha-background-img"
               draggable={false}
+              onLoad={() => setIsLoading(false)}
             />
             <img
               src={`data:image/png;base64,${challenge.puzzle_image}`}
               alt="captcha puzzle"
-              className="captcha-puzzle-img"
+              className={`captcha-puzzle-img ${statusClass}`}
               draggable={false}
               style={{
                 top: challenge.puzzle_y - challenge.puzzle_size / 2 - 10,
                 left: puzzleOffsetX - challenge.puzzle_size / 2 - 10,
               }}
             />
+            {isFailed && <div className="captcha-fail-overlay" />}
+            {isVerified && <div className="captcha-success-overlay" />}
           </div>
 
-          <div className="captcha-slider-track" ref={trackRef}>
+          <div
+            className="captcha-slider-track"
+            ref={trackRef}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
             <div
               className="captcha-slider-fill"
-              style={{ width: `${sliderX}px` }}
+              style={{ width: `${sliderX + 22}px` }}
             />
             <div
-              className={`captcha-slider-button ${
-                isVerified ? "verified" : isFailed ? "failed" : isDragging ? "dragging" : ""
-              }`}
+              className={`captcha-slider-button ${statusClass}`}
               style={{ left: `${sliderX}px` }}
               onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
+              onMouseMove={isDragging ? handleMouseMove : undefined}
               onMouseUp={handleMouseUp}
               onMouseLeave={isDragging ? handleMouseUp : undefined}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
               {isVerified ? (
                 <ShieldCheck size={20} />
@@ -148,14 +239,25 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
               )}
             </div>
             <span className="captcha-track-hint">
-              {isVerified ? "验证通过 ✓" : isFailed ? "验证失败" : isVerifying ? "验证中..." : "→ 拖动滑块完成拼图验证 →"}
+              {isVerified
+                ? "验证通过 ✓"
+                : isFailed
+                  ? "验证失败，请重试"
+                  : isVerifying
+                    ? "验证中..."
+                    : "→ 拖动滑块完成拼图验证 →"}
             </span>
           </div>
         </div>
       )}
 
-      <button className="captcha-refresh" onClick={loadChallenge} disabled={isVerified} title="刷新验证码">
-        <RefreshCw size={14} />
+      <button
+        className="captcha-refresh"
+        onClick={loadChallenge}
+        disabled={isVerified || isLoading}
+        title="刷新验证码"
+      >
+        <RefreshCw size={14} className={isLoading ? "spinning" : ""} />
       </button>
     </div>
   );
