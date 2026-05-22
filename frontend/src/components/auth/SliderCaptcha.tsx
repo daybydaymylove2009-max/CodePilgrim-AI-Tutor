@@ -101,10 +101,9 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
 
     setIsVerifying(true);
 
-    const trackWidth = getSliderMaxX();
-    const bgWidth = challenge.width;
+    const trackWidth = challenge.width - 44;
     const sliderRatio = currentXRef.current / trackWidth;
-    const moveX = sliderRatio * (bgWidth - challenge.puzzle_size);
+    const moveX = sliderRatio * (challenge.width - challenge.puzzle_size);
     const puzzleX = Math.round(moveX + challenge.puzzle_size / 2);
 
     try {
@@ -175,7 +174,7 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
   const pieceMargin = challenge ? Math.floor(challenge.puzzle_size / 2) + 22 : 48;
 
   const moveX = challenge
-    ? (currentXRef.current / getSliderMaxX()) * (challenge.width - challenge.puzzle_size)
+    ? (currentXRef.current / (challenge.width - 44)) * (challenge.width - challenge.puzzle_size)
     : 0;
 
   const statusClass = isVerified ? "verified" : isFailed ? "failed" : isDragging ? "dragging" : "";
