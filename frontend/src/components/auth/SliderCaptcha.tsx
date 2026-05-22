@@ -216,7 +216,14 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
               }}
             />
             {isFailed && <div className="captcha-fail-overlay" />}
-            {isVerified && <div className="captcha-success-overlay" />}
+            {isVerified && (
+              <div className="captcha-success-overlay">
+                <div className="captcha-success-content">
+                  <ShieldCheck size={36} />
+                  <span>验证通过</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div
