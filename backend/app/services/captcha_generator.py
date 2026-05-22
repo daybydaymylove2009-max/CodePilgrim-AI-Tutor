@@ -82,7 +82,7 @@ class CaptchaGenerator:
         background = self._cut_puzzle_hole(background, puzzle_mask, puzzle_x, puzzle_y)
         background = self._render_hole_ao(background, puzzle_mask, puzzle_x, puzzle_y)
 
-        background_b64 = self._image_to_b64(background, format="WEBP", quality=90)
+        background_b64 = self._image_to_b64(background, format="PNG")
         puzzle_b64 = self._image_to_b64(puzzle_piece, format="PNG")
 
         return CaptchaResult(

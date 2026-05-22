@@ -26,7 +26,7 @@ class CaptchaService:
     TOKEN_PREFIX = "captcha_token:"
     CAPTCHA_EXPIRE = 300
     TOKEN_EXPIRE = 600
-    TOLERANCE = 5
+    TOLERANCE = 8
 
     def __init__(self, generator: CaptchaGenerator | None = None):
         self._generator = generator or captcha_generator

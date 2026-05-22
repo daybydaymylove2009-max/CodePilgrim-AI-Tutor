@@ -17,22 +17,25 @@ interface ChallengeData {
   puzzle_size: number;
 }
 
+type LoadState = "loading" | "ready" | "error";
+
 export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProps) {
   const [challenge, setChallenge] = useState<ChallengeData | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [errorMsg, setErrorMsg] = useState("");
   const [sliderX, setSliderX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isFailed, setIsFailed] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const trackRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
   const animFrameRef = useRef<number>(0);
   const currentXRef = useRef(0);
 
   const loadChallenge = useCallback(async () => {
-    setIsLoading(true);
+    setLoadState("loading");
+    setErrorMsg("");
     try {
       const { data } = await authApi.getCaptchaChallenge();
       setChallenge(data);
@@ -40,10 +43,11 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
       currentXRef.current = 0;
       setIsVerified(false);
       setIsFailed(false);
+      setLoadState("ready");
     } catch {
-      onError("获取验证码失败，请刷新重试");
-    } finally {
-      setIsLoading(false);
+      setErrorMsg("获取验证码失败，请点击重试");
+      setLoadState("error");
+      onError("获取验证码失败，请点击重试");
     }
   }, [onError]);
 
@@ -58,9 +62,9 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
   }, []);
 
   const getSliderMaxX = useCallback(() => {
-    if (!trackRef.current) return 260;
+    if (!trackRef.current) return challenge ? challenge.width - 44 : 260;
     return trackRef.current.offsetWidth - 44;
-  }, []);
+  }, [challenge]);
 
   const updateSliderPosition = useCallback((clientX: number) => {
     if (!trackRef.current) return;
@@ -98,9 +102,8 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
     setIsVerifying(true);
 
     const trackWidth = getSliderMaxX();
-    const maxX = challenge.width - challenge.puzzle_size;
-    const ratio = maxX / trackWidth;
-    const puzzleX = Math.round(currentXRef.current * ratio);
+    const moveX = (currentXRef.current / trackWidth) * (challenge.width - challenge.puzzle_size);
+    const puzzleX = Math.round(moveX + challenge.puzzle_size / 2);
 
     try {
       const { data } = await authApi.verifyCaptcha({
@@ -167,32 +170,40 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
     handleDragEnd();
   }, [handleDragEnd]);
 
-  const puzzleOffsetX = challenge
+  const pieceMargin = challenge ? Math.floor(challenge.puzzle_size / 2) + 22 : 48;
+
+  const moveX = challenge
     ? (currentXRef.current / getSliderMaxX()) * (challenge.width - challenge.puzzle_size)
     : 0;
 
   const statusClass = isVerified ? "verified" : isFailed ? "failed" : isDragging ? "dragging" : "";
 
   return (
-    <div className="slider-captcha" ref={containerRef}>
-      {isLoading && (
+    <div className="slider-captcha">
+      {loadState === "loading" && (
         <div className="captcha-loading">
           <div className="captcha-spinner" />
           <span>加载验证码...</span>
         </div>
       )}
-      {challenge && (
-        <div className={`captcha-image-container ${isLoading ? "hidden" : ""}`}>
-          <div
-            className="captcha-background-wrapper"
-            style={{ width: challenge.width, height: challenge.height }}
-          >
+
+      {loadState === "error" && (
+        <div className="captcha-error-box">
+          <span className="captcha-error-text">{errorMsg}</span>
+          <button className="captcha-error-retry" onClick={loadChallenge}>
+            <RefreshCw size={14} /> 重试
+          </button>
+        </div>
+      )}
+
+      {loadState === "ready" && challenge && (
+        <div className="captcha-image-container">
+          <div className="captcha-background-wrapper">
             <img
-              src={`data:image/webp;base64,${challenge.background_image}`}
+              src={`data:image/png;base64,${challenge.background_image}`}
               alt="captcha background"
               className="captcha-background-img"
               draggable={false}
-              onLoad={() => setIsLoading(false)}
             />
             <img
               src={`data:image/png;base64,${challenge.puzzle_image}`}
@@ -200,8 +211,8 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
               className={`captcha-puzzle-img ${statusClass}`}
               draggable={false}
               style={{
-                top: challenge.puzzle_y - challenge.puzzle_size / 2 - 10,
-                left: puzzleOffsetX - challenge.puzzle_size / 2 - 10,
+                top: challenge.puzzle_y - pieceMargin,
+                left: moveX - pieceMargin,
               }}
             />
             {isFailed && <div className="captcha-fail-overlay" />}
@@ -254,10 +265,10 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
       <button
         className="captcha-refresh"
         onClick={loadChallenge}
-        disabled={isVerified || isLoading}
+        disabled={isVerified || loadState === "loading"}
         title="刷新验证码"
       >
-        <RefreshCw size={14} className={isLoading ? "spinning" : ""} />
+        <RefreshCw size={14} className={loadState === "loading" ? "spinning" : ""} />
       </button>
     </div>
   );
