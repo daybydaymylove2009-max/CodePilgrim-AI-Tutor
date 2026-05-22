@@ -2,11 +2,9 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Float, JSON
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
-from app.db.session import engine
-from sqlalchemy.orm import DeclarativeBase
+from app.core.config import settings
 
 
 class Base(DeclarativeBase):
@@ -17,10 +15,23 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+if settings.DATABASE_URL.startswith("sqlite"):
+    UUIDType = String(36)
+    UUIDKwArgs = {}
+else:
+    from sqlalchemy.dialects.postgresql import UUID as PGUUID
+    UUIDType = PGUUID(as_uuid=True)
+    UUIDKwArgs = {"as_uuid": True}
+
+
+def uuid_default():
+    return str(uuid.uuid4())
+
+
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -40,7 +51,7 @@ class User(Base):
 class KnowledgePoint(Base):
     __tablename__ = "knowledge_points"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     topic: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
@@ -63,9 +74,9 @@ class KnowledgePoint(Base):
 class KnowledgeEdge(Base):
     __tablename__ = "knowledge_edges"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    from_kp_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
-    to_kp_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    from_kp_id: Mapped[str] = mapped_column(String(36), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
+    to_kp_id: Mapped[str] = mapped_column(String(36), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
     relation_type: Mapped[str] = mapped_column(String(50), default="prerequisite")
 
     from_kp = relationship("KnowledgePoint", foreign_keys=[from_kp_id], back_populates="edges_from")
@@ -75,9 +86,9 @@ class KnowledgeEdge(Base):
 class KnowledgeState(Base):
     __tablename__ = "knowledge_states"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    kp_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    kp_id: Mapped[str] = mapped_column(String(36), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
     bkt_p_know: Mapped[float] = mapped_column(Float, default=0.2)
     bkt_p_guess: Mapped[float] = mapped_column(Float, default=0.25)
     bkt_p_slip: Mapped[float] = mapped_column(Float, default=0.15)
@@ -101,9 +112,9 @@ class KnowledgeState(Base):
 class LearningSession(Base):
     __tablename__ = "learning_sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    kp_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    kp_id: Mapped[str] = mapped_column(String(36), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
     session_type: Mapped[str] = mapped_column(String(30), default="guided")
     ercf_stage: Mapped[str] = mapped_column(String(30), default="R1")
     persona_stage: Mapped[str] = mapped_column(String(20), default="guide")
@@ -124,8 +135,8 @@ class LearningSession(Base):
 class Quiz(Base):
     __tablename__ = "quizzes"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    kp_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    kp_id: Mapped[str] = mapped_column(String(36), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
     question_type: Mapped[str] = mapped_column(String(30), nullable=False)
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
     options: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -140,10 +151,10 @@ class Quiz(Base):
 class QuizAttempt(Base):
     __tablename__ = "quiz_attempts"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    quiz_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("quizzes.id", ondelete="CASCADE"))
-    kp_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    quiz_id: Mapped[str] = mapped_column(String(36), ForeignKey("quizzes.id", ondelete="CASCADE"))
+    kp_id: Mapped[str] = mapped_column(String(36), ForeignKey("knowledge_points.id", ondelete="CASCADE"))
     answer: Mapped[str] = mapped_column(Text, nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     response_time_ms: Mapped[int] = mapped_column(Integer, default=0)
@@ -154,5 +165,6 @@ class QuizAttempt(Base):
 
 
 async def init_db():
+    from app.db.session import engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

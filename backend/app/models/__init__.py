@@ -7,6 +7,7 @@ from app.models.models import (
     LearningSession,
     Quiz,
     QuizAttempt,
+    init_db,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "LearningSession",
     "Quiz",
     "QuizAttempt",
+    "init_db",
 ]

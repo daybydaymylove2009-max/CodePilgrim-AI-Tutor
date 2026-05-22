@@ -6,8 +6,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
 
-    DATABASE_URL: str = "postgresql+asyncpg://codepilgrim:codepilgrim@localhost:5432/codepilgrim"
-    DATABASE_URL_SYNC: str = "postgresql://codepilgrim:codepilgrim@localhost:5432/codepilgrim"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./codepilgrim.db"
+    DATABASE_URL_SYNC: str = "sqlite:///./codepilgrim.db"
 
     REDIS_URL: str = "redis://localhost:6379/0"
 

@@ -3,13 +3,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.algorithms.bkt import BKTEvidence, BKTTracker
 from app.algorithms.cognitive_load import CognitiveLoadRegulator, CognitiveLoadSignals
 from app.algorithms.ercf import ERCFContext, ERCFStage, PersonaStage
+from app.core.deps import get_current_active_user
+from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from app.models import KnowledgePoint, KnowledgeState, LearningSession, Quiz, QuizAttempt, User
 from app.schemas.learning import (
@@ -26,20 +28,19 @@ from app.schemas.learning import (
 from app.services.ai_tutor import ai_tutor_service
 from app.services.learning_path import learning_path_service
 from app.services.sandbox import sandbox
-from app.api.v1.auth import get_current_user
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
 bkt_tracker = BKTTracker()
 cognitive_regulator = CognitiveLoadRegulator()
 
-_active_sessions: dict[uuid.UUID, ERCFContext] = {}
+_active_sessions: dict[str, ERCFContext] = {}
 
 
 @router.post("/execute", response_model=ExecutionResult)
 async def execute_code(
     submission: CodeSubmission,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     result = await sandbox.execute(submission.code, submission.language)
     return result
@@ -49,14 +50,14 @@ async def execute_code(
 async def submit_code(
     submission: CodeSubmission,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     execution_result = await sandbox.execute(submission.code, submission.language)
 
     kp_result = await db.execute(select(KnowledgePoint).where(KnowledgePoint.id == submission.kp_id))
     kp = kp_result.scalar_one_or_none()
     if not kp:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge point not found")
+        raise NotFoundError("Knowledge point", str(submission.kp_id))
 
     is_correct = execution_result.success and execution_result.exit_code == 0
 
@@ -95,12 +96,12 @@ async def submit_code(
 async def submit_quiz(
     submission: QuizSubmission,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     quiz_result = await db.execute(select(Quiz).where(Quiz.id == submission.quiz_id))
     quiz = quiz_result.scalar_one_or_none()
     if not quiz:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quiz not found")
+        raise NotFoundError("Quiz", str(submission.quiz_id))
 
     is_correct = submission.answer.strip().lower() == quiz.correct_answer.strip().lower()
 
@@ -152,12 +153,12 @@ async def submit_quiz(
 async def chat_with_tutor(
     request: AIChatRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     kp_result = await db.execute(select(KnowledgePoint).where(KnowledgePoint.id == request.kp_id))
     kp = kp_result.scalar_one_or_none()
     if not kp:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge point not found")
+        raise NotFoundError("Knowledge point", str(request.kp_id))
 
     state_result = await db.execute(
         select(KnowledgeState).where(
@@ -168,8 +169,8 @@ async def chat_with_tutor(
     state = state_result.scalar_one_or_none()
     p_know = state.bkt_p_know if state else 0.2
 
-    if request.session_id and request.session_id in _active_sessions:
-        ercf_context = _active_sessions[request.session_id]
+    if current_user.id in _active_sessions:
+        ercf_context = _active_sessions[current_user.id]
     else:
         persona = PersonaStage(state.persona_stage) if state else PersonaStage.GUIDE
         ercf_context = ERCFContext(persona=persona)
@@ -197,7 +198,7 @@ async def chat_with_tutor(
 async def verify_mastery(
     request: MasteryVerificationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     execution_result = await sandbox.execute(request.code)
 
@@ -209,7 +210,7 @@ async def verify_mastery(
     )
     state = state_result.scalar_one_or_none()
     if not state:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge state not found")
+        raise NotFoundError("Knowledge state", str(request.kp_id))
 
     verification_results = {
         "guided": {
@@ -228,7 +229,7 @@ async def verify_mastery(
 
     level_result = verification_results.get(request.verification_level)
     if not level_result:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification level")
+        raise NotFoundError("Verification level", request.verification_level)
 
     if level_result["passed"] and execution_result.success:
         if request.verification_level == "independent":
@@ -251,7 +252,7 @@ async def verify_mastery(
 @router.get("/daily-plan", response_model=DailyPlanResponse)
 async def get_daily_plan(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     plan = await learning_path_service.get_review_plan(db, current_user.id)
     return DailyPlanResponse(**plan)
@@ -260,7 +261,7 @@ async def get_daily_plan(
 @router.get("/cognitive-load")
 async def assess_cognitive_load(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     recent_sessions_result = await db.execute(
         select(LearningSession)
@@ -271,7 +272,7 @@ async def assess_cognitive_load(
     recent_sessions = recent_sessions_result.scalars().all()
 
     if not recent_sessions:
-        return {"load_level": "optimal", "message": "No recent learning data"}
+        return {"load_level": "optimal", "message": "No recent learning data", "actions": [], "suggestions": []}
 
     total = len(recent_sessions)
     errors = sum(1 for s in recent_sessions if s.is_correct is False)

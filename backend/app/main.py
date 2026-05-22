@@ -96,8 +96,9 @@ async def readiness_probe():
 
     try:
         from app.db.session import engine
+        from sqlalchemy import text
         async with engine.connect() as conn:
-            await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+            await conn.execute(text("SELECT 1"))
         checks["database"] = True
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
