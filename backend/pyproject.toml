@@ -22,6 +22,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "loguru>=0.7.0",
     "asgi-correlation-id>=4.3.0",
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

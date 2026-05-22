@@ -31,7 +31,7 @@ export const authApi = {
     api.post("/auth/login", data),
   getMe: () => api.get("/auth/me"),
   getCaptchaChallenge: () => api.get("/auth/captcha/challenge"),
-  verifyCaptcha: (data: { captcha_id: string; slider_position: number }) =>
+  verifyCaptcha: (data: { captcha_id: string; slider_x: number; slider_y: number }) =>
     api.post("/auth/captcha/verify", data),
 };
 

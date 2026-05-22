@@ -14,7 +14,7 @@ class UserCreate(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100)
     cognitive_style: str = Field(default="visual", pattern="^(visual|auditory|kinesthetic)$")
     interests: list[str] | None = None
-    captcha_token: str = Field(..., min_length=1, description="滑块验证码通过后获得的token")
+    captcha_token: str = Field(..., min_length=1, description="图形验证码通过后获得的token")
 
     @model_validator(mode="after")
     def passwords_match(self):
@@ -50,14 +50,18 @@ class TokenResponse(BaseModel):
 
 class CaptchaChallengeResponse(BaseModel):
     captcha_id: str
-    background_width: int
-    slider_width: int
-    target_position: int
+    background_image: str = Field(description="Base64编码的背景图（含缺口）")
+    puzzle_image: str = Field(description="Base64编码的拼图块")
+    puzzle_y: int = Field(description="拼图块的Y坐标（固定）")
+    width: int = Field(description="背景图宽度")
+    height: int = Field(description="背景图高度")
+    puzzle_size: int = Field(description="拼图块大小")
 
 
 class CaptchaVerifyRequest(BaseModel):
     captcha_id: str
-    slider_position: int = Field(..., ge=0, le=300)
+    slider_x: int = Field(..., ge=0, description="用户拖动拼图块的X坐标")
+    slider_y: int = Field(..., ge=0, description="用户拖动拼图块的Y坐标")
 
 
 class CaptchaVerifyResponse(BaseModel):

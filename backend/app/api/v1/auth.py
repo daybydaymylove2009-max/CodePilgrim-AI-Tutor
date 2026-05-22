@@ -42,7 +42,7 @@ async def get_captcha_challenge():
 
 @router.post("/captcha/verify", response_model=CaptchaVerifyResponse)
 async def verify_captcha(data: CaptchaVerifyRequest):
-    result = await captcha_service.verify_captcha(data.captcha_id, data.slider_position)
+    result = await captcha_service.verify_captcha(data.captcha_id, data.slider_x, data.slider_y)
     if result["success"]:
         return CaptchaVerifyResponse(
             success=True,

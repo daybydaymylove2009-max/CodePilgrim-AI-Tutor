@@ -1,59 +1,45 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import random
 import time
 import uuid
-from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
 
 from app.core.cache import redis_service
-
-
-@dataclass
-class SliderCaptcha:
-    captcha_id: str
-    slider_position: int
-    background_width: int = 300
-    slider_width: int = 50
-    tolerance: int = 5
-    created_at: float = field(default_factory=time.time)
-    expires_in: int = 300
-
-    def verify(self, user_position: int) -> bool:
-        return abs(user_position - self.slider_position) <= self.tolerance
-
-    def is_expired(self) -> bool:
-        return time.time() - self.created_at > self.expires_in
+from app.services.captcha_generator import CaptchaGenerator, captcha_generator
 
 
 class CaptchaService:
     """
-    滑块验证码服务.
+    图形拼图验证码服务.
 
     流程：
-    1. 客户端请求 /auth/captcha/challenge → 获取 captcha_id + slider_position
-    2. 用户拖动滑块，客户端提交 /auth/captcha/verify → 验证位置
+    1. 客户端请求 /auth/captcha/challenge → 获取 captcha_id + 背景图 + 拼图块
+    2. 用户拖动拼图块到正确位置，客户端提交 /auth/captcha/verify → 验证位置
     3. 验证通过后获得 captcha_token，用于注册请求
+
+    独立可复用：CaptchaGenerator 可被任何进程直接调用
     """
 
     CAPTCHA_PREFIX = "captcha:"
     TOKEN_PREFIX = "captcha_token:"
     CAPTCHA_EXPIRE = 300
     TOKEN_EXPIRE = 600
+    TOLERANCE = 5
+
+    def __init__(self, generator: CaptchaGenerator | None = None):
+        self._generator = generator or captcha_generator
 
     async def create_challenge(self) -> dict[str, Any]:
         captcha_id = str(uuid.uuid4())
-        slider_position = random.randint(60, 240)
-        background_width = 300
-        slider_width = 50
+
+        result = self._generator.generate()
 
         captcha_data = {
             "captcha_id": captcha_id,
-            "slider_position": slider_position,
+            "puzzle_x": result.puzzle_x,
+            "puzzle_y": result.puzzle_y,
             "created_at": time.time(),
         }
         await redis_service.set(
@@ -64,12 +50,15 @@ class CaptchaService:
 
         return {
             "captcha_id": captcha_id,
-            "background_width": background_width,
-            "slider_width": slider_width,
-            "target_position": slider_position,
+            "background_image": result.background_b64,
+            "puzzle_image": result.puzzle_b64,
+            "puzzle_y": result.puzzle_y,
+            "width": result.width,
+            "height": result.height,
+            "puzzle_size": result.puzzle_size,
         }
 
-    async def verify_captcha(self, captcha_id: str, user_position: int) -> dict[str, Any]:
+    async def verify_captcha(self, captcha_id: str, user_x: int, user_y: int) -> dict[str, Any]:
         captcha_data = await redis_service.get(f"{self.CAPTCHA_PREFIX}{captcha_id}")
         if not captcha_data:
             return {"success": False, "message": "验证码已过期，请重新获取"}
@@ -79,10 +68,13 @@ class CaptchaService:
             await redis_service.delete(f"{self.CAPTCHA_PREFIX}{captcha_id}")
             return {"success": False, "message": "验证码已过期，请重新获取"}
 
-        expected_position = captcha_data.get("slider_position", 0)
-        tolerance = 5
+        expected_x = captcha_data.get("puzzle_x", 0)
+        expected_y = captcha_data.get("puzzle_y", 0)
 
-        if abs(user_position - expected_position) <= tolerance:
+        x_match = abs(user_x - expected_x) <= self.TOLERANCE
+        y_match = abs(user_y - expected_y) <= self.TOLERANCE
+
+        if x_match and y_match:
             captcha_token = str(uuid.uuid4())
             token_data = {
                 "captcha_id": captcha_id,
@@ -99,7 +91,7 @@ class CaptchaService:
             return {"success": True, "captcha_token": captcha_token}
         else:
             await redis_service.delete(f"{self.CAPTCHA_PREFIX}{captcha_id}")
-            return {"success": False, "message": "滑块位置不正确，请重试"}
+            return {"success": False, "message": "拼图位置不正确，请重试"}
 
     async def validate_token(self, captcha_token: str) -> bool:
         token_data = await redis_service.get(f"{self.TOKEN_PREFIX}{captcha_token}")
