@@ -71,8 +71,18 @@ class CaptchaService:
         expected_x = captcha_data.get("puzzle_x", 0)
         expected_y = captcha_data.get("puzzle_y", 0)
 
-        x_match = abs(user_x - expected_x) <= self.TOLERANCE
-        y_match = abs(user_y - expected_y) <= self.TOLERANCE
+        x_diff = abs(user_x - expected_x)
+        y_diff = abs(user_y - expected_y)
+        x_match = x_diff <= self.TOLERANCE
+        y_match = y_diff <= self.TOLERANCE
+
+        logger.info(
+            f"Captcha verify: expected=({expected_x},{expected_y}) "
+            f"received=({user_x},{user_y}) "
+            f"diff=({x_diff},{y_diff}) "
+            f"tolerance={self.TOLERANCE} "
+            f"x_match={x_match} y_match={y_match}"
+        )
 
         if x_match and y_match:
             captcha_token = str(uuid.uuid4())

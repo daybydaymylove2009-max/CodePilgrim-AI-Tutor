@@ -33,6 +33,11 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
   const animFrameRef = useRef<number>(0);
   const currentXRef = useRef(0);
 
+  const getSliderMaxX = useCallback(() => {
+    if (!trackRef.current) return challenge ? challenge.width - 44 : 260;
+    return trackRef.current.offsetWidth - 44;
+  }, [challenge]);
+
   const loadChallenge = useCallback(async () => {
     setLoadState("loading");
     setErrorMsg("");
@@ -60,11 +65,6 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, []);
-
-  const getSliderMaxX = useCallback(() => {
-    if (!trackRef.current) return challenge ? challenge.width - 44 : 260;
-    return trackRef.current.offsetWidth - 44;
-  }, [challenge]);
 
   const updateSliderPosition = useCallback((clientX: number) => {
     if (!trackRef.current) return;
