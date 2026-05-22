@@ -3,16 +3,24 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class UserCreate(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
+    username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_\u4e00-\u9fa5]+$")
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str = Field(..., min_length=8, max_length=128)
     display_name: str = Field(..., min_length=1, max_length=100)
     cognitive_style: str = Field(default="visual", pattern="^(visual|auditory|kinesthetic)$")
     interests: list[str] | None = None
+    captcha_token: str = Field(..., min_length=1, description="滑块验证码通过后获得的token")
+
+    @model_validator(mode="after")
+    def passwords_match(self):
+        if self.password != self.confirm_password:
+            raise ValueError("两次输入的密码不一致")
+        return self
 
 
 class UserLogin(BaseModel):
@@ -38,3 +46,21 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class CaptchaChallengeResponse(BaseModel):
+    captcha_id: str
+    background_width: int
+    slider_width: int
+    target_position: int
+
+
+class CaptchaVerifyRequest(BaseModel):
+    captcha_id: str
+    slider_position: int = Field(..., ge=0, le=300)
+
+
+class CaptchaVerifyResponse(BaseModel):
+    success: bool
+    captcha_token: str | None = None
+    message: str | None = None

@@ -25,11 +25,14 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
-  register: (data: { username: string; email: string; password: string; display_name: string; cognitive_style?: string }) =>
+  register: (data: { username: string; email: string; password: string; confirm_password: string; display_name: string; cognitive_style?: string; captcha_token: string }) =>
     api.post("/auth/register", data),
   login: (data: { username: string; password: string }) =>
     api.post("/auth/login", data),
   getMe: () => api.get("/auth/me"),
+  getCaptchaChallenge: () => api.get("/auth/captcha/challenge"),
+  verifyCaptcha: (data: { captcha_id: string; slider_position: number }) =>
+    api.post("/auth/captcha/verify", data),
 };
 
 export const knowledgeApi = {

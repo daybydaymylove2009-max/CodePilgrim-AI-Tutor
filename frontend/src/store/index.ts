@@ -7,7 +7,7 @@ interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (data: { username: string; email: string; password: string; display_name: string; cognitive_style?: string }) => Promise<void>;
+  register: (data: { username: string; email: string; password: string; confirm_password: string; display_name: string; cognitive_style?: string; captcha_token: string }) => Promise<void>;
   logout: () => void;
   loadUser: () => Promise<void>;
 }
