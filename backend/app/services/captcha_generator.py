@@ -79,8 +79,8 @@ class CaptchaGenerator:
         puzzle_piece, mask_crop = self._extract_puzzle_piece(background, puzzle_mask, puzzle_x, puzzle_y)
         puzzle_piece = self._add_3d_lighting(puzzle_piece, mask_crop)
 
-        background = self._cut_puzzle_hole(background, puzzle_mask, puzzle_x, puzzle_y)
-        background = self._render_hole_ao(background, puzzle_mask, puzzle_x, puzzle_y)
+        background = self._cut_puzzle_hole(background, puzzle_path, puzzle_x, puzzle_y)
+        background = self._render_hole_ao(background, puzzle_path, puzzle_x, puzzle_y)
 
         background_b64 = self._image_to_b64(background, format="PNG")
         puzzle_b64 = self._image_to_b64(puzzle_piece, format="PNG")
@@ -1104,33 +1104,35 @@ class CaptchaGenerator:
     # ═══════════════════════════════════════════════════════════════
 
     def _cut_puzzle_hole(
-        self, background: Image.Image, mask: Image.Image, px: int, py: int
+        self, background: Image.Image, puzzle_path: list[Tuple[int, int]], px: int, py: int
     ) -> Image.Image:
         hole_overlay = Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
         hole_draw = ImageDraw.Draw(hole_overlay)
-
-        path = self._generate_jigsaw_path(px, py, self.puzzle_size, random.Random(42))
-        hole_draw.polygon(path, fill=(0, 0, 0, 150))
+        hole_draw.polygon(puzzle_path, fill=(0, 0, 0, 200))
 
         background = Image.alpha_composite(background, hole_overlay)
 
         border_outer = Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
         bo_draw = ImageDraw.Draw(border_outer)
-        if len(path) >= 2:
-            bo_draw.line(path, fill=(0, 0, 0, 140), width=3)
+        if len(puzzle_path) >= 2:
+            bo_draw.line(puzzle_path, fill=(0, 0, 0, 180), width=3)
         background = Image.alpha_composite(background, border_outer.filter(ImageFilter.GaussianBlur(radius=1)))
 
         border_inner = Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
         bi_draw = ImageDraw.Draw(border_inner)
-        if len(path) >= 2:
-            bi_draw.line(path, fill=(255, 255, 255, 35), width=1)
+        if len(puzzle_path) >= 2:
+            bi_draw.line(puzzle_path, fill=(255, 255, 255, 50), width=1)
         background = Image.alpha_composite(background, border_inner)
 
         return background
 
     def _render_hole_ao(
-        self, background: Image.Image, mask: Image.Image, px: int, py: int
+        self, background: Image.Image, puzzle_path: list[Tuple[int, int]], px: int, py: int
     ) -> Image.Image:
+        mask = Image.new("L", (self.width, self.height), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.polygon(puzzle_path, fill=255)
+
         dilated = mask.filter(ImageFilter.MaxFilter(11))
         dilated = dilated.filter(ImageFilter.GaussianBlur(radius=5))
 
@@ -1145,16 +1147,15 @@ class CaptchaGenerator:
                 m = m_px[x, y]
                 if d > 30 and m < 128:
                     dist_factor = d / 255.0
-                    alpha = int(dist_factor * 45)
+                    alpha = int(dist_factor * 55)
                     ao_px[x, y] = (0, 0, 0, alpha)
 
         background = Image.alpha_composite(background, ao_layer)
 
         highlight = Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
         hl_draw = ImageDraw.Draw(highlight)
-        path_inner = self._generate_jigsaw_path(px - 1, py - 1, self.puzzle_size - 2, random.Random(43))
-        if len(path_inner) >= 2:
-            hl_draw.line(path_inner, fill=(255, 255, 255, 20), width=1)
+        if len(puzzle_path) >= 2:
+            hl_draw.line(puzzle_path, fill=(255, 255, 255, 25), width=1)
         background = Image.alpha_composite(background, highlight)
 
         return background
