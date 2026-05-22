@@ -102,7 +102,9 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
     setIsVerifying(true);
 
     const trackWidth = getSliderMaxX();
-    const moveX = (currentXRef.current / trackWidth) * (challenge.width - challenge.puzzle_size);
+    const bgWidth = challenge.width;
+    const sliderRatio = currentXRef.current / trackWidth;
+    const moveX = sliderRatio * (bgWidth - challenge.puzzle_size);
     const puzzleX = Math.round(moveX + challenge.puzzle_size / 2);
 
     try {
@@ -197,7 +199,7 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
       )}
 
       {loadState === "ready" && challenge && (
-        <div className="captcha-image-container">
+        <div className="captcha-image-container" style={{ maxWidth: challenge.width }}>
           <div className="captcha-background-wrapper">
             <img
               src={`data:image/png;base64,${challenge.background_image}`}
