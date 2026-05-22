@@ -211,7 +211,7 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
               className={`captcha-puzzle-img ${statusClass}`}
               draggable={false}
               style={{
-                top: challenge.puzzle_y - pieceMargin,
+                top: challenge.puzzle_y - Math.floor(challenge.puzzle_size / 2) - pieceMargin,
                 left: moveX - pieceMargin,
               }}
             />
