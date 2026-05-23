@@ -32,6 +32,12 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
   const startXRef = useRef(0);
   const animFrameRef = useRef<number>(0);
   const currentXRef = useRef(0);
+  const isVerifiedRef = useRef(false);
+  const onVerifiedRef = useRef(onVerified);
+  const onErrorRef = useRef(onError);
+
+  onVerifiedRef.current = onVerified;
+  onErrorRef.current = onError;
 
   const getSliderMaxX = useCallback(() => {
     if (!trackRef.current) return challenge ? challenge.width - 44 : 260;
@@ -39,6 +45,8 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
   }, [challenge]);
 
   const loadChallenge = useCallback(async () => {
+    if (isVerifiedRef.current) return;
+
     setLoadState("loading");
     setErrorMsg("");
     try {
@@ -52,13 +60,13 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
     } catch {
       setErrorMsg("获取验证码失败，请点击重试");
       setLoadState("error");
-      onError("获取验证码失败，请点击重试");
+      onErrorRef.current("获取验证码失败，请点击重试");
     }
-  }, [onError]);
+  }, []);
 
   useEffect(() => {
     loadChallenge();
-  }, [loadChallenge]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -115,20 +123,27 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
 
       if (data.success && data.captcha_token) {
         setIsVerified(true);
-        onVerified(data.captcha_token);
+        isVerifiedRef.current = true;
+        onVerifiedRef.current(data.captcha_token);
       } else {
         setIsFailed(true);
-        onError(data.message || "验证失败，请重试");
-        setTimeout(() => loadChallenge(), 1500);
+        onErrorRef.current(data.message || "验证失败，请重试");
+        setTimeout(() => {
+          isVerifiedRef.current = false;
+          loadChallenge();
+        }, 1500);
       }
     } catch {
       setIsFailed(true);
-      onError("验证请求失败，请重试");
-      setTimeout(loadChallenge, 1500);
+      onErrorRef.current("验证请求失败，请重试");
+      setTimeout(() => {
+        isVerifiedRef.current = false;
+        loadChallenge();
+      }, 1500);
     } finally {
       setIsVerifying(false);
     }
-  }, [isDragging, isVerified, challenge, onVerified, onError, loadChallenge, getSliderMaxX]);
+  }, [isDragging, isVerified, challenge, loadChallenge]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -171,6 +186,13 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
     handleDragEnd();
   }, [handleDragEnd]);
 
+  const handleRefresh = useCallback(() => {
+    isVerifiedRef.current = false;
+    setIsVerified(false);
+    setIsFailed(false);
+    loadChallenge();
+  }, [loadChallenge]);
+
   const pieceMargin = challenge ? Math.floor(challenge.puzzle_size / 2) + 22 : 48;
 
   const moveX = challenge
@@ -191,7 +213,7 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
       {loadState === "error" && (
         <div className="captcha-error-box">
           <span className="captcha-error-text">{errorMsg}</span>
-          <button className="captcha-error-retry" onClick={loadChallenge}>
+          <button className="captcha-error-retry" onClick={handleRefresh}>
             <RefreshCw size={14} /> 重试
           </button>
         </div>
@@ -272,7 +294,7 @@ export default function SliderCaptcha({ onVerified, onError }: SliderCaptchaProp
 
       <button
         className="captcha-refresh"
-        onClick={loadChallenge}
+        onClick={handleRefresh}
         disabled={isVerified || loadState === "loading"}
         title="刷新验证码"
       >

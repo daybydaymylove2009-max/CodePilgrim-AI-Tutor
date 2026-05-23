@@ -33,6 +33,7 @@ class AITutorService:
         p_know: float,
         context: ERCFContext,
         history: list[dict[str, str]] | None = None,
+        api_config: dict | None = None,
     ) -> dict[str, Any]:
         system_prompt = self.ercf.build_system_prompt(context, p_know, kp_title)
 
@@ -41,7 +42,7 @@ class AITutorService:
             messages.extend(history)
         messages.append({"role": "user", "content": message})
 
-        raw_response = await self._call_llm(messages)
+        raw_response = await self._call_llm(messages, api_config=api_config)
 
         guarded_response = self._apply_output_guard(raw_response, context)
 
@@ -59,23 +60,37 @@ class AITutorService:
             "intervention": self.ercf.should_intervene(context) if context.idle_seconds >= 30 else None,
         }
 
-    async def _call_llm(self, messages: list[dict[str, str]]) -> str:
+    async def _call_llm(self, messages: list[dict[str, str]], api_config: dict | None = None) -> str:
+        if api_config:
+            provider = api_config.get("provider", "")
+            api_key = api_config.get("api_key", "")
+            base_url = api_config.get("api_base_url", "")
+            model = api_config.get("model_name", "")
+            if provider == "openai" and api_key:
+                return await self._call_openai(messages, api_key=api_key, base_url=base_url or "https://api.openai.com/v1", model=model or "gpt-4o")
+            elif provider == "anthropic" and api_key:
+                return await self._call_anthropic(messages, api_key=api_key, model=model or "claude-sonnet-4-20250514")
+            elif provider == "custom" and api_key:
+                return await self._call_openai(messages, api_key=api_key, base_url=base_url, model=model or "gpt-4o")
         if settings.OPENAI_API_KEY:
             return await self._call_openai(messages)
         if settings.ANTHROPIC_API_KEY:
             return await self._call_anthropic(messages)
         return self._fallback_response(messages)
 
-    async def _call_openai(self, messages: list[dict[str, str]]) -> str:
+    async def _call_openai(self, messages: list[dict[str, str]], api_key: str | None = None, base_url: str = "https://api.openai.com/v1", model: str | None = None) -> str:
+        key = api_key or settings.OPENAI_API_KEY
+        url = f"{base_url.rstrip('/')}/chat/completions"
+        mdl = model or settings.OPENAI_MODEL
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
+                url,
                 headers={
-                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    "Authorization": f"Bearer {key}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": settings.OPENAI_MODEL,
+                    "model": mdl,
                     "messages": messages,
                     "temperature": 0.7,
                     "max_tokens": 1000,
@@ -84,7 +99,9 @@ class AITutorService:
             data = response.json()
             return data["choices"][0]["message"]["content"]
 
-    async def _call_anthropic(self, messages: list[dict[str, str]]) -> str:
+    async def _call_anthropic(self, messages: list[dict[str, str]], api_key: str | None = None, model: str | None = None) -> str:
+        key = api_key or settings.ANTHROPIC_API_KEY
+        mdl = model or settings.ANTHROPIC_MODEL
         system_msg = ""
         chat_messages = []
         for m in messages:
@@ -97,12 +114,12 @@ class AITutorService:
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
-                    "x-api-key": settings.ANTHROPIC_API_KEY,
+                    "x-api-key": key,
                     "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": settings.ANTHROPIC_MODEL,
+                    "model": mdl,
                     "max_tokens": 1000,
                     "system": system_msg,
                     "messages": chat_messages,
@@ -110,6 +127,126 @@ class AITutorService:
             )
             data = response.json()
             return data["content"][0]["text"]
+
+    async def annotate_code(
+        self,
+        code: str,
+        language: str = "python",
+        kp_title: str | None = None,
+        api_config: dict | None = None,
+    ) -> dict[str, Any]:
+        prompt = (
+            f"你是一位编程教学专家。请对以下{language}代码进行注解和讲解：\n\n"
+            f"```{language}\n{code}\n```\n\n"
+        )
+        if kp_title:
+            prompt += f"相关知识点：{kp_title}\n\n"
+        prompt += (
+            "请按以下格式返回（必须是合法JSON）：\n"
+            "{\n"
+            '  "annotated_code": "添加了详细中文注释的代码",\n'
+            '  "explanation": "代码整体逻辑的讲解，2-4句话",\n'
+            '  "key_concepts": ["涉及的核心概念1", "核心概念2"]\n'
+            "}\n\n"
+            "要求：\n"
+            "1. annotated_code 中每行关键代码上方添加 # 注释\n"
+            "2. 注释要解释为什么这样做，而不仅仅是做了什么\n"
+            "3. key_concepts 最多5个\n"
+            "4. 只返回JSON，不要其他文字"
+        )
+
+        messages = [
+            {"role": "system", "content": "你是编程教学专家，擅长用简洁的中文解释代码。只返回JSON格式。"},
+            {"role": "user", "content": prompt},
+        ]
+
+        raw = await self._call_llm(messages, api_config=api_config)
+        try:
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+            result = json.loads(cleaned)
+            return {
+                "annotated_code": result.get("annotated_code", code),
+                "explanation": result.get("explanation", ""),
+                "key_concepts": result.get("key_concepts", []),
+            }
+        except (json.JSONDecodeError, KeyError):
+            return {
+                "annotated_code": code,
+                "explanation": raw[:300] if raw else "代码注解生成失败",
+                "key_concepts": [],
+            }
+
+    async def explain_knowledge(
+        self,
+        kp_title: str,
+        kp_description: str | None = None,
+        p_know: float = 0.0,
+        api_config: dict | None = None,
+    ) -> dict[str, Any]:
+        level = "入门" if p_know < 0.3 else "进阶" if p_know < 0.7 else "深入"
+        depth_guide = {
+            "入门": "从基础概念出发，用类比和直观示例建立认知框架，强调'为什么'而非'怎么做'",
+            "进阶": "在已有概念基础上深入实现原理、性能特征和生产实践，连接理论与工程",
+            "深入": "聚焦底层机制、边界情况、性能优化和架构设计，提供专家级洞察",
+        }
+        prompt = (
+            f"你是一位拥有10年以上工业生产级开发经验的编程教学专家。请为以下知识点生成专业级教学解说：\n\n"
+            f"知识点：{kp_title}\n"
+        )
+        if kp_description:
+            prompt += f"知识范围：{kp_description}\n"
+        prompt += (
+            f"学习者当前掌握程度：{level}（p_know={p_know:.2f}）\n"
+            f"讲解策略：{depth_guide[level]}\n\n"
+            "请按以下格式返回（必须是合法JSON）：\n"
+            "{\n"
+            '  "title": "知识点标题",\n'
+            '  "explanation": "专业级详细讲解，5-8段，包含：1)核心概念与设计哲学 2)底层机制与实现原理 3)生产环境最佳实践 4)性能特征与权衡 5)与其他技术的关联",\n'
+            '  "key_points": ["要点1：包含具体技术细节", "要点2：包含生产级注意事项", "要点3：包含性能或安全考量", "要点4：包含常见陷阱"],\n'
+            '  "code_example": "生产级代码示例，15-30行，包含错误处理、类型标注、注释说明，反映真实工程实践",\n'
+            '  "common_mistakes": ["生产环境常见错误1：具体描述及后果", "生产环境常见错误2：具体描述及修复方案", "生产环境常见错误3：具体描述及预防措施"]\n'
+            "}\n\n"
+            "要求：\n"
+            "1. 讲解必须达到企业工业生产级深度，不能停留在入门玩具级\n"
+            "2. 每段讲解必须有具体的技术细节，禁止空泛描述\n"
+            "3. code_example 必须是生产级代码：包含错误处理、类型标注、边界检查\n"
+            "4. key_points 每条必须包含可操作的技术细节\n"
+            "5. common_mistakes 必须描述生产环境真实踩坑场景\n"
+            "6. 只返回JSON，不要其他文字"
+        )
+
+        messages = [
+            {"role": "system", "content": "你是一位拥有10年以上工业生产级开发经验的编程教学专家。你的讲解必须深入底层原理、包含生产级最佳实践、覆盖性能和安全考量。禁止浅尝辄止的入门级描述。只返回JSON格式。"},
+            {"role": "user", "content": prompt},
+        ]
+
+        raw = await self._call_llm(messages, api_config=api_config)
+        try:
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+            result = json.loads(cleaned)
+            return {
+                "title": result.get("title", kp_title),
+                "explanation": result.get("explanation", ""),
+                "key_points": result.get("key_points", []),
+                "code_example": result.get("code_example", ""),
+                "common_mistakes": result.get("common_mistakes", []),
+            }
+        except (json.JSONDecodeError, KeyError):
+            return {
+                "title": kp_title,
+                "explanation": raw[:500] if raw else "知识点解说生成失败",
+                "key_points": [],
+                "code_example": "",
+                "common_mistakes": [],
+            }
 
     def _fallback_response(self, messages: list[dict[str, str]]) -> str:
         last_user_msg = messages[-1]["content"] if messages else ""

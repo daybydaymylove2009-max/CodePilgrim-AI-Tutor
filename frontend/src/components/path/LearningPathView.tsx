@@ -120,7 +120,7 @@ function PathNodeCard({
             {masteryLabel}
           </span>
         </div>
-        {description && <p className="node-desc">{description.slice(0, 80)}...</p>}
+        {description && <p className="node-desc">{description.length > 150 ? description.slice(0, 150) + "..." : description}</p>}
         <div className="node-meta">
           <span className="difficulty">难度: {"★".repeat(node.difficulty)}{"☆".repeat(5 - node.difficulty)}</span>
           <span className="bkt-score">掌握度: {Math.round(node.bkt_p_know * 100)}%</span>

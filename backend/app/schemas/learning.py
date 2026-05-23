@@ -8,8 +8,9 @@ from pydantic import BaseModel, Field
 
 class CodeSubmission(BaseModel):
     code: str = Field(..., min_length=1, max_length=50000)
-    kp_id: uuid.UUID
-    language: str = Field(default="python", pattern="^(python|javascript)$")
+    kp_id: uuid.UUID | None = None
+    language: str = Field(default="python", pattern="^(python|javascript|rust|react|vue)$")
+    stdin: str | None = None
 
 
 class ExecutionResult(BaseModel):
@@ -19,8 +20,11 @@ class ExecutionResult(BaseModel):
     exit_code: int = -1
     execution_time_ms: int = 0
     memory_used_mb: float = 0.0
+    peak_memory_mb: float | None = None
     error_type: str | None = None
     error_message: str | None = None
+    structured_error: dict | None = None
+    security_violations: list[str] | None = None
 
 
 class QuizSubmission(BaseModel):
@@ -59,6 +63,31 @@ class AIChatResponse(BaseModel):
     persona_stage: str
     hint_level: int | None
     intervention: dict | None
+
+
+class CodeAnnotationRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=50000)
+    language: str = Field(default="python")
+    kp_id: uuid.UUID | None = None
+
+
+class CodeAnnotationResponse(BaseModel):
+    annotated_code: str
+    explanation: str
+    key_concepts: list[str]
+
+
+class KnowledgeExplanationRequest(BaseModel):
+    kp_id: uuid.UUID
+
+
+class KnowledgeExplanationResponse(BaseModel):
+    kp_id: uuid.UUID
+    title: str
+    explanation: str
+    key_points: list[str]
+    code_example: str
+    common_mistakes: list[str]
 
 
 class LearningSessionResponse(BaseModel):

@@ -7,6 +7,7 @@ import CodeWorkspace from "./components/code/CodeWorkspace";
 import LearningPathView from "./components/path/LearningPathView";
 import KnowledgeGraph from "./components/path/KnowledgeGraph";
 import Dashboard from "./components/dashboard/Dashboard";
+import ApiSettings from "./components/settings/ApiSettings";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 import "./App.css";
 
@@ -58,6 +59,7 @@ function App() {
             <Route path="path" element={<ErrorBoundary><LearningPathView /></ErrorBoundary>} />
             <Route path="graph" element={<ErrorBoundary><KnowledgeGraphRoute /></ErrorBoundary>} />
             <Route path="dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+            <Route path="settings" element={<ErrorBoundary><ApiSettings /></ErrorBoundary>} />
           </Route>
         </Routes>
       </BrowserRouter>

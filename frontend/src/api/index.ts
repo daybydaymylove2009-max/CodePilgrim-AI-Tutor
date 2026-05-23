@@ -45,7 +45,7 @@ export const knowledgeApi = {
 };
 
 export const learningApi = {
-  executeCode: (data: { code: string; kp_id: string; language?: string }) =>
+  executeCode: (data: { code: string; kp_id?: string; language?: string }) =>
     api.post("/learning/execute", data),
   submitCode: (data: { code: string; kp_id: string; language?: string }) =>
     api.post("/learning/submit-code", data),
@@ -53,10 +53,33 @@ export const learningApi = {
     api.post("/learning/quiz", data),
   chatWithTutor: (data: { kp_id: string; message: string; session_id?: string }) =>
     api.post("/learning/chat", data),
+  annotateCode: (data: { code: string; language?: string; kp_id?: string }) =>
+    api.post("/learning/annotate-code", data),
+  explainKnowledge: (data: { kp_id: string }) =>
+    api.post("/learning/explain-knowledge", data),
   verifyMastery: (data: { kp_id: string; verification_level: string; code: string }) =>
     api.post("/learning/verify-mastery", data),
   getDailyPlan: () => api.get("/learning/daily-plan"),
   getCognitiveLoad: () => api.get("/learning/cognitive-load"),
+};
+
+export const courseApi = {
+  listCourses: (language?: string) => api.get("/courses", { params: { language } }),
+  getCourseDetail: (courseId: string) => api.get(`/courses/${courseId}`),
+  getChapterDetail: (courseId: string, chapterId: string) => api.get(`/courses/${courseId}/chapters/${chapterId}`),
+  enrollCourse: (courseId: string) => api.post("/courses/enroll", { course_id: courseId }),
+  listEnrollments: () => api.get("/courses/enrollments"),
+  updateChapterProgress: (chapterId: string, data: { status?: string; study_minutes?: number; mastery_score?: number; notes?: string }) =>
+    api.put(`/courses/chapters/${chapterId}/progress`, data),
+};
+
+export const apiConfigApi = {
+  getConfig: () => api.get("/api-config"),
+  createConfig: (data: { provider: string; api_key: string; api_base_url?: string; model_name?: string }) => api.post("/api-config", data),
+  updateConfig: (data: { provider?: string; api_key?: string; api_base_url?: string; model_name?: string; is_active?: boolean }) => api.put("/api-config", data),
+  deleteConfig: () => api.delete("/api-config"),
+  testConnection: (data?: { provider?: string; api_key?: string; api_base_url?: string; model_name?: string }) => api.post("/api-config/test", data),
+  getUsage: () => api.get("/api-config/usage"),
 };
 
 export default api;

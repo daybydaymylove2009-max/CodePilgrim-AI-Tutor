@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store";
-import { BookOpen, LogOut, Map, Code, BarChart3, Network } from "lucide-react";
+import { BookOpen, LogOut, Map, Code, BarChart3, Network, Settings } from "lucide-react";
 
 export default function AppLayout() {
   const { user, logout } = useAuthStore();
@@ -30,6 +30,9 @@ export default function AppLayout() {
           </NavLink>
           <NavLink to="/dashboard" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
             <BarChart3 size={18} /> 仪表盘
+          </NavLink>
+          <NavLink to="/settings" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+            <Settings size={18} /> API 设置
           </NavLink>
         </nav>
         <div className="header-right">

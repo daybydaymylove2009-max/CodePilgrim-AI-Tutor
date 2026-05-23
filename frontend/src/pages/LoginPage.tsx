@@ -36,14 +36,15 @@ export default function LoginPage() {
   const canSubmit =
     username &&
     password &&
-    (!isRegister || (email && displayName && passwordsMatch && captchaToken && password.length >= 8));
+    (!isRegister || (email && displayName && passwordsMatch && password.length >= 8)) &&
+    captchaToken;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setCaptchaError("");
 
-    if (isRegister && !captchaToken) {
+    if (!captchaToken) {
       setCaptchaError("请先完成滑块验证");
       return;
     }
@@ -71,9 +72,7 @@ export default function LoginPage() {
       const resp = (err as { response?: { data?: { detail?: string; message?: string } } })?.response?.data;
       const msg = resp?.detail || resp?.message || "操作失败，请重试";
       setError(msg);
-      if (isRegister) {
-        setCaptchaToken("");
-      }
+      setCaptchaToken("");
     }
   };
 
@@ -190,19 +189,17 @@ export default function LoginPage() {
             </div>
           )}
 
-          {isRegister && (
-            <div className="form-group">
-              <label>安全验证</label>
-              <SliderCaptcha
-                onVerified={(token) => {
-                  setCaptchaToken(token);
-                  setCaptchaError("");
-                }}
-                onError={(msg) => setCaptchaError(msg)}
-              />
-              {captchaError && <span className="field-error">{captchaError}</span>}
-            </div>
-          )}
+          <div className="form-group">
+            <label>安全验证</label>
+            <SliderCaptcha
+              onVerified={(token) => {
+                setCaptchaToken(token);
+                setCaptchaError("");
+              }}
+              onError={(msg) => setCaptchaError(msg)}
+            />
+            {captchaError && <span className="field-error">{captchaError}</span>}
+          </div>
 
           <button type="submit" className="btn-primary" disabled={!canSubmit}>
             {isRegister ? "注册" : "登录"}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -10,16 +11,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.algorithms.bkt import BKTEvidence, BKTTracker
 from app.algorithms.cognitive_load import CognitiveLoadRegulator, CognitiveLoadSignals
 from app.algorithms.ercf import ERCFContext, ERCFStage, PersonaStage
+from app.core.config import settings
+from app.core.crypto import decrypt_api_key
 from app.core.deps import get_current_active_user
 from app.core.exceptions import NotFoundError
 from app.db.session import get_db
-from app.models import KnowledgePoint, KnowledgeState, LearningSession, Quiz, QuizAttempt, User
+from app.models import ApiUsageLog, KnowledgePoint, KnowledgeState, LearningSession, Quiz, QuizAttempt, User, UserApiConfig
 from app.schemas.learning import (
     AIChatRequest,
     AIChatResponse,
+    CodeAnnotationRequest,
+    CodeAnnotationResponse,
     CodeSubmission,
     DailyPlanResponse,
     ExecutionResult,
+    KnowledgeExplanationRequest,
+    KnowledgeExplanationResponse,
     LearningSessionResponse,
     MasteryVerificationRequest,
     QuizAttemptResponse,
@@ -37,13 +44,73 @@ cognitive_regulator = CognitiveLoadRegulator()
 _active_sessions: dict[str, ERCFContext] = {}
 
 
+async def _get_user_api_config(db: AsyncSession, user_id: str) -> dict | None:
+    result = await db.execute(
+        select(UserApiConfig).where(
+            UserApiConfig.user_id == user_id,
+            UserApiConfig.is_active == True,
+        )
+    )
+    config = result.scalar_one_or_none()
+    if not config:
+        return None
+    try:
+        decrypted_key = decrypt_api_key(config.encrypted_api_key)
+    except Exception:
+        return None
+    return {
+        "provider": config.provider,
+        "api_key": decrypted_key,
+        "api_base_url": config.api_base_url,
+        "model_name": config.model_name,
+    }
+
+
+async def _log_api_usage(
+    db: AsyncSession,
+    user_id: str,
+    provider: str,
+    endpoint: str,
+    model: str | None,
+    success: bool,
+    latency_ms: int | None,
+    error: str | None = None,
+    tokens: int | None = None,
+):
+    log = ApiUsageLog(
+        user_id=user_id,
+        provider=provider,
+        endpoint=endpoint,
+        model=model,
+        is_success=success,
+        latency_ms=latency_ms,
+        error_message=error,
+        tokens_used=tokens,
+    )
+    db.add(log)
+    await db.commit()
+
+
 @router.post("/execute", response_model=ExecutionResult)
 async def execute_code(
     submission: CodeSubmission,
     current_user: User = Depends(get_current_active_user),
 ):
-    result = await sandbox.execute(submission.code, submission.language)
+    result = await sandbox.execute(
+        submission.code,
+        submission.language,
+        stdin=submission.stdin,
+        user_id=current_user.id,
+    )
     return result
+
+
+@router.get("/execution-history")
+async def get_execution_history(
+    limit: int = 20,
+    current_user: User = Depends(get_current_active_user),
+):
+    return sandbox.get_history(current_user.id, limit)
 
 
 @router.post("/submit-code", response_model=LearningSessionResponse)
@@ -52,7 +119,12 @@ async def submit_code(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    execution_result = await sandbox.execute(submission.code, submission.language)
+    execution_result = await sandbox.execute(
+        submission.code,
+        submission.language,
+        stdin=submission.stdin,
+        user_id=current_user.id,
+    )
 
     kp_result = await db.execute(select(KnowledgePoint).where(KnowledgePoint.id == submission.kp_id))
     kp = kp_result.scalar_one_or_none()
@@ -176,13 +248,33 @@ async def chat_with_tutor(
         ercf_context = ERCFContext(persona=persona)
         _active_sessions[current_user.id] = ercf_context
 
-    response = await ai_tutor_service.chat(
-        message=request.message,
-        kp_id=request.kp_id,
-        kp_title=kp.title,
-        p_know=p_know,
-        context=ercf_context,
-    )
+    api_config = await _get_user_api_config(db, current_user.id)
+    start = time.monotonic()
+    try:
+        response = await ai_tutor_service.chat(
+            message=request.message,
+            kp_id=request.kp_id,
+            kp_title=kp.title,
+            p_know=p_know,
+            context=ercf_context,
+            api_config=api_config,
+        )
+        elapsed = int((time.monotonic() - start) * 1000)
+        provider = api_config["provider"] if api_config else "system"
+        model = api_config.get("model_name") if api_config else None
+        await _log_api_usage(db, current_user.id, provider, "/chat", model, True, elapsed)
+    except Exception as e:
+        elapsed = int((time.monotonic() - start) * 1000)
+        provider = api_config["provider"] if api_config else "system"
+        model = api_config.get("model_name") if api_config else None
+        await _log_api_usage(db, current_user.id, provider, "/chat", model, False, elapsed, error=str(e))
+        response = {
+            "assistant_message": f"⚠️ AI 导师暂不可用。当前未配置个人 API 密钥，无法提供智能对话辅导。\n\n你可以：\n1. 前往「API 设置」页面配置你的个人 API 密钥\n2. 继续通过代码运行和知识点浏览进行自主学习\n\n其他功能（代码执行、课程学习、知识图谱等）均可正常使用。",
+            "ercf_stage": ercf_context.stage.value,
+            "persona_stage": ercf_context.persona.value,
+            "hint_level": ercf_context.current_hint_level.value,
+            "intervention": None,
+        }
 
     return AIChatResponse(
         session_id=current_user.id,
@@ -194,13 +286,134 @@ async def chat_with_tutor(
     )
 
 
+@router.post("/annotate-code", response_model=CodeAnnotationResponse)
+async def annotate_code(
+    request: CodeAnnotationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    kp_title = None
+    if request.kp_id:
+        kp_result = await db.execute(select(KnowledgePoint).where(KnowledgePoint.id == request.kp_id))
+        kp = kp_result.scalar_one_or_none()
+        if kp:
+            kp_title = kp.title
+
+    api_config = await _get_user_api_config(db, current_user.id)
+    start = time.monotonic()
+    try:
+        result = await ai_tutor_service.annotate_code(
+            code=request.code,
+            language=request.language,
+            kp_title=kp_title,
+            api_config=api_config,
+        )
+        elapsed = int((time.monotonic() - start) * 1000)
+        provider = api_config["provider"] if api_config else "system"
+        model = api_config.get("model_name") if api_config else None
+        await _log_api_usage(db, current_user.id, provider, "/annotate-code", model, True, elapsed)
+    except Exception as e:
+        elapsed = int((time.monotonic() - start) * 1000)
+        provider = api_config["provider"] if api_config else "system"
+        model = api_config.get("model_name") if api_config else None
+        await _log_api_usage(db, current_user.id, provider, "/annotate-code", model, False, elapsed, error=str(e))
+        result = {
+            "annotated_code": request.code,
+            "explanation": "代码注解功能需要 AI API 支持。请前往「API 设置」配置你的个人 API 密钥以启用此功能。",
+            "key_concepts": [],
+        }
+    return CodeAnnotationResponse(**result)
+
+
+@router.post("/explain-knowledge", response_model=KnowledgeExplanationResponse)
+async def explain_knowledge(
+    request: KnowledgeExplanationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    kp_result = await db.execute(select(KnowledgePoint).where(KnowledgePoint.id == request.kp_id))
+    kp = kp_result.scalar_one_or_none()
+    if not kp:
+        raise NotFoundError("Knowledge point", str(request.kp_id))
+
+    state_result = await db.execute(
+        select(KnowledgeState).where(
+            KnowledgeState.user_id == current_user.id,
+            KnowledgeState.kp_id == request.kp_id,
+        )
+    )
+    state = state_result.scalar_one_or_none()
+    p_know = state.bkt_p_know if state else 0.2
+
+    api_config = await _get_user_api_config(db, current_user.id)
+    has_any_api = api_config or settings.OPENAI_API_KEY or settings.ANTHROPIC_API_KEY
+
+    if has_any_api:
+        start = time.monotonic()
+        try:
+            result = await ai_tutor_service.explain_knowledge(
+                kp_title=kp.title,
+                kp_description=kp.description if hasattr(kp, "description") else None,
+                p_know=p_know,
+                api_config=api_config,
+            )
+            elapsed = int((time.monotonic() - start) * 1000)
+            provider = api_config["provider"] if api_config else "system"
+            model = api_config.get("model_name") if api_config else None
+            await _log_api_usage(db, current_user.id, provider, "/explain-knowledge", model, True, elapsed)
+        except Exception as e:
+            elapsed = int((time.monotonic() - start) * 1000)
+            provider = api_config["provider"] if api_config else "system"
+            model = api_config.get("model_name") if api_config else None
+            await _log_api_usage(db, current_user.id, provider, "/explain-knowledge", model, False, elapsed, error=str(e))
+            result = _build_db_fallback_explanation(kp, p_know)
+            result["_ai_unavailable"] = True
+    else:
+        result = _build_db_fallback_explanation(kp, p_know)
+
+    result["kp_id"] = request.kp_id
+    return KnowledgeExplanationResponse(**result)
+
+
+def _build_db_fallback_explanation(kp: KnowledgePoint, p_know: float) -> dict:
+    level = "入门" if p_know < 0.3 else "进阶" if p_know < 0.7 else "深入"
+    explanation = kp.description or f"这是关于「{kp.title}」的知识点。当前掌握程度：{level}。"
+    if kp.learning_objectives:
+        explanation += "\n\n学习目标：\n" + "\n".join(f"• {obj}" for obj in kp.learning_objectives)
+
+    key_points = []
+    if kp.learning_objectives:
+        key_points = [f"掌握：{obj}" for obj in kp.learning_objectives[:4]]
+
+    code_example = ""
+    if kp.code_examples and len(kp.code_examples) > 0:
+        code_example = kp.code_examples[0]
+
+    common_mistakes = [
+        "未充分理解核心概念就急于编写代码",
+        "忽略边界条件和异常处理",
+        "缺乏对底层原理的深入理解",
+    ]
+
+    return {
+        "title": kp.title,
+        "explanation": explanation,
+        "key_points": key_points,
+        "code_example": code_example,
+        "common_mistakes": common_mistakes,
+    }
+
+
 @router.post("/verify-mastery")
 async def verify_mastery(
     request: MasteryVerificationRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    execution_result = await sandbox.execute(request.code)
+    execution_result = await sandbox.execute(
+        request.code,
+        user_id=current_user.id,
+    )
 
     state_result = await db.execute(
         select(KnowledgeState).where(

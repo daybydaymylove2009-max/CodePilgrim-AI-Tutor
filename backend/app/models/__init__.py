@@ -7,6 +7,12 @@ from app.models.models import (
     LearningSession,
     Quiz,
     QuizAttempt,
+    Course,
+    CourseChapter,
+    CourseEnrollment,
+    ChapterProgress,
+    UserApiConfig,
+    ApiUsageLog,
     init_db,
 )
 
@@ -19,5 +25,11 @@ __all__ = [
     "LearningSession",
     "Quiz",
     "QuizAttempt",
+    "Course",
+    "CourseChapter",
+    "CourseEnrollment",
+    "ChapterProgress",
+    "UserApiConfig",
+    "ApiUsageLog",
     "init_db",
 ]

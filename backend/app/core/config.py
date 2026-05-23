@@ -38,6 +38,8 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    API_KEY_ENCRYPTION_SALT: str = "codepilgrim-api-key-salt-2024"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

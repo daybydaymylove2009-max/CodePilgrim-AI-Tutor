@@ -164,6 +164,116 @@ class QuizAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Course(Base):
+    __tablename__ = "courses"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    subtitle: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    author: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    edition: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    publisher: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    isbn: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    language: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    total_chapters: Mapped[int] = mapped_column(Integer, default=0)
+    difficulty_range: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    chapters = relationship("CourseChapter", back_populates="course", cascade="all, delete-orphan", order_by="CourseChapter.chapter_number")
+    enrollments = relationship("CourseEnrollment", back_populates="course", cascade="all, delete-orphan")
+
+
+class CourseChapter(Base):
+    __tablename__ = "course_chapters"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    course_id: Mapped[str] = mapped_column(String(36), ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    part_number: Mapped[int] = mapped_column(Integer, default=1)
+    part_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    chapter_title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    estimated_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    difficulty: Mapped[int] = mapped_column(Integer, default=1)
+    kp_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    learning_objectives: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    key_concepts: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    course = relationship("Course", back_populates="chapters")
+    progress = relationship("ChapterProgress", back_populates="chapter", cascade="all, delete-orphan")
+
+
+class CourseEnrollment(Base):
+    __tablename__ = "course_enrollments"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    course_id: Mapped[str] = mapped_column(String(36), ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    current_chapter_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("course_chapters.id", ondelete="SET NULL"), nullable=True)
+    completed_chapters: Mapped[int] = mapped_column(Integer, default=0)
+    total_study_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_studied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    course = relationship("Course", back_populates="enrollments")
+
+
+class ChapterProgress(Base):
+    __tablename__ = "chapter_progress"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    chapter_id: Mapped[str] = mapped_column(String(36), ForeignKey("course_chapters.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="not_started")
+    study_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    mastery_score: Mapped[float] = mapped_column(Float, default=0.0)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    chapter = relationship("CourseChapter", back_populates="progress")
+
+
+class UserApiConfig(Base):
+    __tablename__ = "user_api_configs"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    api_base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ApiUsageLog(Base):
+    __tablename__ = "api_usage_logs"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_default)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(200), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_success: Mapped[bool] = mapped_column(Boolean, default=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 async def init_db():
     from app.db.session import engine
     async with engine.begin() as conn:
